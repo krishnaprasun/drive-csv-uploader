@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: drive-csv-uploader
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Gate for the public URL. Without it the app refuses to serve, because
+      # anyone reaching the URL would be able to write into the Drive account.
+      - key: APP_PASSWORD
+        sync: false
+      # Full contents of a token.json minted by running the tool once locally.
+      # There is no browser on the server to run Google's consent flow in.
+      - key: GOOGLE_TOKEN_JSON
+        sync: false

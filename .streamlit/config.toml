@@ -1,0 +1,14 @@
+[server]
+headless = true
+# XSRF protection sends a cookie with each request; Streamlit forces CORS on
+# alongside it, so leave enableCORS alone or it just logs a warning and reverts.
+enableXsrfProtection = true
+# Per-file cap. The free instance has 512 MB of RAM and browser uploads are held
+# in memory, so a batch much bigger than this will get the worker killed.
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
