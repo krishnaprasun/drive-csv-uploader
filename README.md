@@ -16,7 +16,7 @@ Opens at http://localhost:8501. First run may ask you to click
 
 | Field | Meaning |
 |---|---|
-| **Local folder to upload** | Full path, e.g. `/Users/krishnaprasun/Desktop/my-content`. Copy it from Finder with ⌥⌘C. |
+| **Local folder to upload** | Full path, e.g. `/Users/you/Desktop/my-content`. Copy it from Finder with ⌥⌘C. |
 | **Drive destination folder** | Slash path created inside My Drive, e.g. `Content/2026-09-02`. Reused if it already exists. |
 | **File types** | All / Images / Videos / Images+videos / Documents. |
 | **Include subfolders** | Walk the tree instead of just the top level. |

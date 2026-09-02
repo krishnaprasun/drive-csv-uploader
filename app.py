@@ -123,7 +123,7 @@ with col_l:
         src = st.text_input(
             "Local folder to upload",
             value=st.session_state.get("src", ""),
-            placeholder="/Users/krishnaprasun/Desktop/my-content",
+            placeholder="/Users/you/Desktop/my-content",
             help="Full path to the folder on this Mac. Copy it from Finder with ⌥⌘C.",
         ).strip().strip("'\"")
         src = os.path.expanduser(src)
