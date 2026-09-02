@@ -7,7 +7,13 @@ Runs in two shapes from the same file:
   reads straight off the disk, so size is limited only by your connection.
 * **Server** (Render) — there is no local disk to point at, so you drag files or
   a .zip into the browser instead. Everything downstream is identical.
+
+Nothing heavier than the standard library is imported at module level. On a
+0.1-CPU free instance, importing the Google client stack takes tens of seconds,
+and doing that before the first `st.` call leaves the visitor staring at a blank
+page. The password gate paints first; the rest is imported after it.
 """
+import csv
 import datetime
 import io
 import mimetypes
@@ -16,11 +22,7 @@ import shutil
 import tempfile
 import time
 
-import pandas as pd
 import streamlit as st
-
-import drive_client as dc
-from sources import FILTERS, human_size, scan_folder, stage_uploads
 
 st.set_page_config(page_title="Drive CSV Uploader", page_icon="📁", layout="wide")
 
@@ -66,6 +68,11 @@ def gate():
 
 gate()
 
+# Past the gate: now pay for the heavy imports, with something on screen.
+with st.spinner("Starting up…"):
+    import drive_client as dc
+    from sources import FILTERS, human_size, scan_folder, stage_uploads
+
 
 # --------------------------------------------------------------- sidebar ----
 st.sidebar.header("Google Drive")
@@ -96,9 +103,10 @@ st.sidebar.caption(
 )
 if IS_SERVER:
     st.sidebar.caption(
-        "Running on Render free tier: the service sleeps after 15 minutes idle "
-        "(first request then takes ~50s), and files pass through the server's "
-        "memory, so keep a batch under ~200 MB."
+        "Running on Render free tier: the service sleeps after 15 minutes idle, "
+        "and the first page load after that is slow because this instance gets "
+        "a tenth of a CPU core. Files are buffered in the server's memory, so "
+        "keep a batch well under 150 MB — big jobs belong in the local version."
     )
 
 # ------------------------------------------------------------------- main ---
@@ -177,10 +185,8 @@ if files:
     st.success("Found **{}** files · {} total".format(len(files), human_size(total)))
     with st.expander("Preview file list"):
         st.dataframe(
-            pd.DataFrame([
-                {"file": rel, "size": human_size(os.path.getsize(f))}
-                for f, rel in files[:500]
-            ]),
+            [{"file": rel, "size": human_size(os.path.getsize(f))}
+             for f, rel in files[:500]],
             width="stretch", hide_index=True,
         )
         if len(files) > 500:
@@ -265,7 +271,7 @@ if go:
     log.empty()
     prog.empty()
 
-    st.session_state["result_df"] = pd.DataFrame(rows)
+    st.session_state["result_df"] = rows
     st.session_state["result_meta"] = {
         "folder": source_label,
         "elapsed": time.time() - started,
@@ -275,12 +281,12 @@ if go:
 
 # ---------------------------------------------------------------- result ----
 if "result_df" in st.session_state:
-    df = st.session_state["result_df"]
+    rows = st.session_state["result_df"]
     meta = st.session_state["result_meta"]
 
-    ok = int((df["status"] == "uploaded").sum())
-    skipped = int(df["status"].str.startswith("skipped").sum())
-    failed = int(df["status"].str.startswith("FAILED").sum())
+    ok = sum(1 for r in rows if r["status"] == "uploaded")
+    skipped = sum(1 for r in rows if r["status"].startswith("skipped"))
+    failed = sum(1 for r in rows if r["status"].startswith("FAILED"))
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Uploaded", ok)
@@ -291,21 +297,26 @@ if "result_df" in st.session_state:
     if failed:
         st.error("{} file(s) failed — re-run to retry just those.".format(failed))
         with st.expander("Show failures"):
-            st.dataframe(df[df["status"].str.startswith("FAILED")][
-                ["relative_path", "status"]], width="stretch", hide_index=True)
+            st.dataframe(
+                [{"relative_path": r["relative_path"], "status": r["status"]}
+                 for r in rows if r["status"].startswith("FAILED")],
+                width="stretch", hide_index=True)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = "drive_links_{}_{}.csv".format(meta["folder"], stamp)
 
     st.subheader("Updated CSV")
     st.dataframe(
-        df[["file_name", "drive_folder", "drive_link", "status"]],
+        [{k: r[k] for k in ("file_name", "drive_folder", "drive_link", "status")}
+         for r in rows],
         width="stretch", hide_index=True,
         column_config={"drive_link": st.column_config.LinkColumn("drive_link")},
     )
 
     buf = io.StringIO()
-    df.to_csv(buf, index=False)
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
     st.download_button("⬇️ Download CSV", buf.getvalue(), file_name=fname, mime="text/csv")
 
     if IS_SERVER:
@@ -314,5 +325,8 @@ if "result_df" in st.session_state:
         st.caption("Download it now — this server keeps no copy.")
     else:
         saved = os.path.join(OUT_DIR, fname)
-        df.to_csv(saved, index=False)
+        with open(saved, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(rows)
         st.caption("Also saved to `{}`".format(saved))

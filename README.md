@@ -93,8 +93,12 @@ yours to point at and no browser to run Google's consent flow in, so:
 ### Free-tier realities
 
 - **Sleeps after 15 minutes idle.** The next visit takes ~50 seconds to wake.
-- **512 MB RAM**, and browser uploads are buffered in memory — keep a batch
-  under roughly 200 MB. Bigger jobs are what the local mode is for.
+- **0.1 CPU core.** The first page load after a sleep spends that core importing
+  Streamlit and the Google client stack, so it can take a couple of minutes and
+  shows a blank page while it works. Subsequent loads are quick.
+- **512 MB RAM**, of which roughly 250 MB is the idle baseline, and uploads are
+  buffered in memory on top of that — keep a batch well under 150 MB. Bigger
+  jobs are what the local mode is for.
 - **Ephemeral disk.** Nothing is archived server-side; download the CSV when
   the run finishes. Uploaded files are staged in a temp dir and deleted after.
 - `GOOGLE_TOKEN_JSON` is refreshed in memory only — Render never writes it back,
