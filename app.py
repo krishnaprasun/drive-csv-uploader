@@ -71,7 +71,8 @@ gate()
 # Past the gate: now pay for the heavy imports, with something on screen.
 with st.spinner("Starting up…"):
     import drive_client as dc
-    from sources import FILTERS, human_size, scan_folder, stage_uploads
+    from sources import (FILTERS, human_size, peek_uploads, scan_folder,
+                         stage_uploads)
 
 
 # --------------------------------------------------------------- sidebar ----
@@ -167,37 +168,43 @@ exts = FILTERS[kind]
 files = []
 staging = None
 
+preview = []       # (display name, size) pairs, cheap to compute every rerun
+source_label = "upload"
+
 if IS_SERVER:
     if uploaded:
-        staging = tempfile.mkdtemp(prefix="drivecsv_")
-        stage_uploads(uploaded, staging)
-        files = scan_folder(staging, exts, True)
-        source_label = "upload"
+        preview = peek_uploads(uploaded, exts)
 elif src:
     if not os.path.isdir(src):
         st.error("Not a folder: `{}`".format(src))
     else:
         files = scan_folder(src, exts, recurse)
+        preview = [(rel, os.path.getsize(f)) for f, rel in files]
         source_label = os.path.basename(src.rstrip("/")) or "upload"
 
-if files:
-    total = sum(os.path.getsize(f) for f, _ in files)
-    st.success("Found **{}** files · {} total".format(len(files), human_size(total)))
+if preview:
+    total = sum(size for _, size in preview)
+    st.success("Found **{}** files · {} total".format(len(preview), human_size(total)))
     with st.expander("Preview file list"):
         st.dataframe(
-            [{"file": rel, "size": human_size(os.path.getsize(f))}
-             for f, rel in files[:500]],
+            [{"file": n, "size": human_size(sz)} for n, sz in preview[:500]],
             width="stretch", hide_index=True,
         )
-        if len(files) > 500:
-            st.caption("Showing first 500 of {}.".format(len(files)))
+        if len(preview) > 500:
+            st.caption("Showing first 500 of {}.".format(len(preview)))
 elif (uploaded or (src and os.path.isdir(src))):
     st.warning("No matching files — check the **File types** filter.")
 
-go = st.button("🚀 Upload to Drive", type="primary", disabled=not files)
+go = st.button("🚀 Upload to Drive", type="primary", disabled=not preview)
 
 # ---------------------------------------------------------------- upload ----
 if go:
+    if IS_SERVER:
+        staging = tempfile.mkdtemp(prefix="drivecsv_")
+        with st.spinner("Preparing files…"):
+            stage_uploads(uploaded, staging)
+            files = scan_folder(staging, exts, True)
+
     try:
         service = dc.get_service(allow_browser=not IS_SERVER)
     except Exception as exc:
@@ -272,9 +279,12 @@ if go:
     prog.empty()
 
     st.session_state["result_df"] = rows
+    st.session_state.pop("result_csv", None)
     st.session_state["result_meta"] = {
         "folder": source_label,
         "elapsed": time.time() - started,
+        "fname": "drive_links_{}_{}.csv".format(
+            source_label, datetime.datetime.now().strftime("%Y%m%d_%H%M%S")),
     }
     if staging:
         shutil.rmtree(staging, ignore_errors=True)
@@ -302,8 +312,7 @@ if "result_df" in st.session_state:
                  for r in rows if r["status"].startswith("FAILED")],
                 width="stretch", hide_index=True)
 
-    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = "drive_links_{}_{}.csv".format(meta["folder"], stamp)
+    fname = meta["fname"]
 
     st.subheader("Updated CSV")
     st.dataframe(
@@ -313,11 +322,14 @@ if "result_df" in st.session_state:
         column_config={"drive_link": st.column_config.LinkColumn("drive_link")},
     )
 
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
-    writer.writeheader()
-    writer.writerows(rows)
-    st.download_button("⬇️ Download CSV", buf.getvalue(), file_name=fname, mime="text/csv")
+    if "result_csv" not in st.session_state:
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        st.session_state["result_csv"] = buf.getvalue()
+    csv_text = st.session_state["result_csv"]
+    st.download_button("⬇️ Download CSV", csv_text, file_name=fname, mime="text/csv")
 
     if IS_SERVER:
         # The Render filesystem is wiped on every restart, so the download button

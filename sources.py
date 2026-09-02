@@ -82,3 +82,35 @@ def stage_uploads(uploaded, workdir):
         else:
             with open(os.path.join(safe_root, name), "wb") as f:
                 f.write(uf.getbuffer())
+
+
+def peek_uploads(uploaded, exts):
+    """List (name, size) for browser-uploaded files without writing anything.
+
+    Looking inside a .zip only reads its central directory, so the preview costs
+    nothing even for a large archive. Staging the real bytes is deferred until
+    the user actually starts an upload — doing it on every rerun is what made
+    the download button unusable on a small instance.
+    """
+    out = []
+    for uf in uploaded:
+        name = os.path.basename(uf.name)
+        if name.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(uf.getbuffer())) as z:
+                    for m in z.infolist():
+                        if m.is_dir():
+                            continue
+                        base = os.path.basename(m.filename)
+                        if base.startswith(".") or "/." in m.filename:
+                            continue
+                        if exts and os.path.splitext(base)[1].lower() not in exts:
+                            continue
+                        out.append((m.filename, m.file_size))
+            except zipfile.BadZipFile:
+                continue
+        else:
+            if exts and os.path.splitext(name)[1].lower() not in exts:
+                continue
+            out.append((name, uf.size))
+    return sorted(out)
